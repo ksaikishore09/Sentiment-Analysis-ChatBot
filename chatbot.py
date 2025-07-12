@@ -7,75 +7,55 @@ Original file is located at
     https://colab.research.google.com/drive/1gonITjLDGLbB8dzOh4QR5c-MT3B5_YOZ
 """
 
-import pandas as pd
 import nltk
-import re
-from nltk.sentiment import SentimentIntensityAnalyzer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
-
-# 1. Download VADER lexicon
+nltk.download('punkt')
 nltk.download('vader_lexicon')
+nltk.download('punkt_tab') 
 
-# 2. Initialize sentiment analyzer
+import pandas as pd
+import random
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.tokenize import word_tokenize
+from nltk import NaiveBayesClassifier, classify
+
+# Load dataset
+data = pd.read_csv("https://raw.githubusercontent.com/ksaikishore09/modifieddataset/refs/heads/main/enhanced_chatbot_dataset_with_sentiment.csv")  # Make sure you have this CSV
+
+# Preprocess: tokenize and label
+def format_sentence(sent):
+    return {word: True for word in word_tokenize(sent.lower())}
+
+features = [(format_sentence(row["Message"]), row["Response"]) for _, row in data.iterrows()]
+random.shuffle(features)
+
+# Train classifier
+train_set = features
+classifier = NaiveBayesClassifier.train(train_set)
+
+# Initialize sentiment analyzer
 sia = SentimentIntensityAnalyzer()
 
-# 3. Load clean dataset from GitHub Gist
-url = "https://raw.githubusercontent.com/ksaikishore09/modifieddataset/refs/heads/main/enhanced_chatbot_dataset_with_sentiment.csv"
-qa_df = pd.read_csv(url)
+# Chat loop
+print("🤖 Advanced Chatbot (type 'quit' to exit)\n")
+while True:
+    user_input = input("You: ")
+    if user_input.lower() == "quit":
+        print("Bot: Goodbye!")
+        break
 
-# 4. Optional cleaning function (currently empty, but kept for extensibility)
-def clean_response(text):
-    return re.sub(r'__.*?__|_[a-z]+_', '', text).strip()
+    # Sentiment Analysis
+    sentiment = sia.polarity_scores(user_input)
+    compound = sentiment['compound']
 
-qa_df['Response'] = qa_df['Response'].apply(clean_response)
-
-# 5. Prepare TF-IDF vectorizer on patterns
-vectorizer = TfidfVectorizer(lowercase=True, stop_words='english')
-pattern_vectors = vectorizer.fit_transform(qa_df['Message'])
-
-# 6. Function to generate bot response
-def get_bot_response(user_input: str, threshold: float = 0.2):
-    scores = sia.polarity_scores(user_input)
-    comp = scores['compound']
-    sentiment = ("Positive 😊" if comp >= 0.05 else
-                 "Negative 😞" if comp <= -0.05 else
-                 "Neutral 😐")
-
-    # Compute best match via TF-IDF
-    vec = vectorizer.transform([user_input])
-    sims = linear_kernel(vec, pattern_vectors).flatten()
-    best_idx = sims.argmax()
-    best_sim = sims[best_idx]
-
-    if best_sim >= threshold:
-        reply = qa_df.loc[best_idx, 'Response']
+    if compound >= 0.05:
+        sentiment_label = "Positive 😊"
+    elif compound <= -0.05:
+        sentiment_label = "Negative 😞"
     else:
-        # Rule-based fallback
-        lower = user_input.lower()
-        if "how are you" in lower:
-            reply = "I'm doing well, thanks! What about you?"
-        elif any(g in lower for g in ["hello", "hi", "hey"]):
-            reply = "Hello there! 😊"
-        elif "thank" in lower:
-            reply = "You're welcome!"
-        elif "sad" in lower or "not fine" in lower:
-            reply = "I'm really sorry to hear that. Want to talk about it?"
-        elif any(b in lower for b in ["bye", "goodbye"]):
-            reply = "Goodbye! Take care."
-        else:
-            reply = "Sorry, I didn’t understand that. Could you rephrase?"
+        sentiment_label = "Neutral 😐"
 
-    return reply, sentiment, comp
+    # Predict response using classifier
+    response = classifier.classify(format_sentence(user_input))
 
-# 7. Chat loop
-if __name__ == "__main__":
-    print("🤖 Chatbot ready (type 'quit' to exit)\n")
-    while True:
-        msg = input("You: ")
-        if msg.lower() == 'quit':
-            print("Bot: Goodbye! 👋")
-            break
-        response, sentiment_label, score = get_bot_response(msg)
-        print(f"Bot: {response}")
-        print(f"Sentiment: {sentiment_label} (score={score})\n")
+    print("Bot:", response)
+    print(f"Sentiment: {sentiment_label} (score = {compound})\n")
